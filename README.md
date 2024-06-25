@@ -4,21 +4,21 @@ Projet d'injection de PE
 # Création de injpe.exe
 
 ```
-cmake all
+nmake all
 ```
 
 # Nettoyage total
 
 ```
-cmake fclean
+nmake fclean
 ```
 
 # Nettoyage des obj
 
 ```
-cmake clean
+nmake clean
 ```
 
 # Injection de PE
 
-Le programme `injep.exe`, une fois lancé, injecte le programme `mapviewfile.exe` dans le dossier courant.
+Le programme `injpe.exe`, une fois lancé, injecte le programme `mapviewfile.exe` dans le dossier courant.
