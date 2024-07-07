@@ -19,14 +19,17 @@ nmake fclean
 nmake clean
 ```
 
-# Injection de PE
+# Injection dynamique de PE
 
-Le programme `injpe.exe`, une fois lancé, injecte le programme `mapviewfile.exe` dans le dossier courant.
-Si plusieurs `.exe` figure dans le dossier, ils seront également injectés.
+Le programme `injpe.exe`, une fois lancé, injecte tous les fichiers `.exe` du dossier courant excepté lui-même.
+1. Dans un premier temps, le programme récupère l'argument 0 (soit le nom de son propre exécutable).
+2. Puis, il énumère les fichiers présents dans le dossier courant. 
+3. S'il s'agit d'un fichier terminant par `.exe`, la fonction d'injection est lancée sur le fichier.
+4. Le programme s'arrête lorsqu'il a énuméré tous les fichiers `.exe` du dossier.
 
 # Injection de Process
 
-Le programme `injpe.exe` injecte le processus "Notepad.exe" si aucun argument est fourni. 
+Le programme `injpe.exe` injecte le processus `Notepad.exe` si aucun argument est fourni. 
 Il est aussi possible de choisir le processus à injecter en passant le nom en argument (avec la casse et le .exe)
 
 L'injection se déroule en 3 phases : 
