@@ -1,5 +1,7 @@
 # Virologie
-Projet d'injection de PE
+Projet étudiant (2600) d'injection de PE
+
+Ce projet est à but éducatif uniquement et ne doit pas être utilisé à des fins malveillantes.
 
 # Création de injpe.exe
 
